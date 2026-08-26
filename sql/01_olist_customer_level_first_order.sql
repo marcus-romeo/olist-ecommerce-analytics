@@ -1,4 +1,5 @@
 -- Create the customer-level first-purchase dataset
+DROP TABLE IF EXISTS customer_first_purchase;
 CREATE TABLE customer_first_purchase AS
 -- Identify each customer's initial purchase timestamp. When multiple orders
 -- share that timestamp, use order_id to select one representative first-order record.

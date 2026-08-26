@@ -1,4 +1,5 @@
 -- Create a table showing each customer's first order and their individual 90-day observation window
+DROP TABLE IF EXISTS customer_90_day_windows;
 CREATE TABLE customer_90_day_windows AS
 SELECT
     customer_unique_id,

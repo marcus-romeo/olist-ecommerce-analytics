@@ -1,5 +1,6 @@
 -- Create a modeling dataset by excluding customers whose first order
 -- occurred during the final 90 days of the Olist timeline
+DROP TABLE IF EXISTS customer_first_purchase_90d;
 CREATE TABLE customer_first_purchase_90d AS
 SELECT *
 FROM customer_first_purchase

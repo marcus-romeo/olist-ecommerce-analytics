@@ -1,5 +1,6 @@
 -- Create the customer-level 90-day repeat-purchase outcome
 
+DROP TABLE IF EXISTS customer_repeat_90d;
 CREATE TABLE customer_repeat_90d AS
 SELECT
     w.customer_unique_id,
