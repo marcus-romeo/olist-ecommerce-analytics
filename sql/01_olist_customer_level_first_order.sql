@@ -1,6 +1,8 @@
 -- Create the customer-level first-purchase dataset
 CREATE TABLE customer_first_purchase AS
--- Find each customer's orders and rank them from first to last
+-- Identify each customer's initial purchase timestamp. When multiple orders
+-- share that timestamp, use order_id to select one representative first-order record.
+-- Same-timestamp orders are part of the initial-purchase point, not repeat orders.
 WITH ranked_orders AS (
     SELECT
         c.customer_unique_id,
@@ -19,7 +21,7 @@ WITH ranked_orders AS (
     FROM customers c
     JOIN orders o ON c.customer_id = o.customer_id
 ),
--- Keep only each customer's first order
+-- Keep one representative record for each customer's initial purchase
 first_orders AS (
     SELECT *
     FROM ranked_orders
