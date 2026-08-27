@@ -1,5 +1,5 @@
 -- OLIST MODELING DATASET VALIDATION QUERIES
--- These checks validate the customer_modeling table before moving into Python and machine learning
+-- These checks validate the intermediate customer_modeling table
 
 -- VALIDATION 1: Confirm one row per customer
 -- Total rows should equal unique customers
@@ -72,7 +72,7 @@ FROM customer_modeling
 WHERE payment_installments <= 0;
 
 
--- VALIDATION 6: Review the structure of the final modeling dataset
+-- VALIDATION 6: Review the structure of the intermediate modeling dataset
 -- This helps identify variables that may contain information unavailable at prediction time
 SELECT
     column_name,

@@ -1,3 +1,6 @@
+-- Exploratory/descriptive post-outcome analysis of returning and
+-- non-returning customers. These results are not a source of model features.
+
 -- Compare the number of returning and non-returning customers
 SELECT
     repeat_purchase_90d,
@@ -382,7 +385,6 @@ ORDER BY
         WHEN '30-50%' THEN 4
         WHEN '50%+' THEN 5
     END;
-
 
 
 

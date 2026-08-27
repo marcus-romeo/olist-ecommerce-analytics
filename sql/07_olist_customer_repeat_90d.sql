@@ -1,4 +1,8 @@
--- Create the customer-level 90-day repeat-purchase outcome
+-- Create the customer-level 90-day repeat-purchase outcome. A repeat purchase
+-- means at least one later order with a timestamp strictly greater than
+-- first_order_date and less than or equal to ninety_day_date. Same-timestamp
+-- orders are excluded. All order statuses count because the business definition
+-- is that the customer placed another order.
 
 DROP TABLE IF EXISTS customer_repeat_90d;
 CREATE TABLE customer_repeat_90d AS

@@ -66,7 +66,7 @@ SELECT first_order_id, first_order_date, first_order_status, delivery_days, deli
 FROM customer_first_purchase
 WHERE first_order_status = 'delivered'
 AND delivery_status IS NULL;
--- 16. Verify the 8 delivered orders with missing delivery information against the original orders table
+-- 16. Verify delivered orders with missing delivery information against the original orders table
 SELECT order_id, order_status, order_purchase_timestamp, order_delivered_customer_date, order_estimated_delivery_date
 FROM orders
 WHERE order_id IN (

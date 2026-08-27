@@ -1,4 +1,4 @@
--- Create the final customer-level dataset for machine learning
+-- Create the intermediate enriched customer-level modeling dataset
 -- Each row represents one customer
 -- The predictor variables describe the customer's first order
 -- repeat_purchase_90d is the outcome we are trying to predict
