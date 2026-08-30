@@ -1,30 +1,22 @@
 # Olist 90-Day Repeat-Purchase Prediction
 
-> **Status:** In progress — three baseline models are complete; corrected initial-event construction and enriched Model A feature engineering are ready for time-aware validation. Tableau is planned for a later stage.
+> **Status:** In progress — corrected original-feature baseline results are complete; enriched Model A feature engineering is ready for time-aware validation. Tableau is planned for a later stage.
 
 Can customer and first-purchase characteristics in historical order data help predict whether a customer will place another order within 90 days?
 
-This portfolio project uses the Olist Brazilian e-commerce dataset to build and evaluate a customer-level repeat-purchase prediction workflow. PostgreSQL and SQL are used to understand, prepare, and validate the data. Python, pandas, and scikit-learn are used to create a chronological train/test split, preprocess the model features, train a Logistic Regression baseline, and evaluate its out-of-sample performance.
+This portfolio project uses the Olist Brazilian e-commerce dataset to build and evaluate a customer-level repeat-purchase prediction workflow. PostgreSQL and SQL are used to understand, prepare, and validate the data. Python, pandas, and scikit-learn are used to create a chronological train/test split, preprocess the model features, train three baseline classifiers, and evaluate their out-of-sample performance.
 
 ## Current Results
 
-The saved baseline results below were produced before the later correction to the complete
-initial-purchase-event definition and timestamp-precise observation cutoff. They remain useful
-historical baselines, but they are not directly comparable to future models until the corrected
-original and enriched feature sets are evaluated with the same time-aware validation design.
+The corrected original-feature baselines use the complete initial-purchase-event definition, the timestamp-precise 90-day eligibility rule, and the same chronological complete-case split. The latest 20% test period has a 1.31% repeat-purchase rate.
 
-The Logistic Regression baseline shows very limited predictive value on the later, out-of-sample testing period:
+| Model | Test ROC-AUC | Test Average Precision | Positive predictions at 0.50 |
+|---|---:|---:|---:|
+| Logistic Regression | 0.5098 | 0.0165 | 0 |
+| Random Forest | 0.5125 | 0.0138 | 25 |
+| Gradient Boosting | 0.5336 | 0.0150 | 12 |
 
-| Metric | Result |
-|---|---:|
-| ROC-AUC | Approximately 0.506 |
-| PR-AUC | Approximately 0.015 |
-| Testing-set repeat-purchase rate | Approximately 1.31% |
-| Positive predictions at the 0.50 threshold | 0 |
-
-At the default classification threshold of 0.50, the model predicts every testing customer as a non-repeat purchaser. Its ROC-AUC is close to random ranking, and its PR-AUC is only slightly above the testing-set positive rate.
-
-These results make the model a useful reference point for future comparisons, but not a successful predictive model.
+All predicted positives from the two tree models are false positives at the unchanged 0.50 threshold; Logistic Regression predicts none. The weak test ranking results and the difference between training and test performance make these useful reference baselines, not successful predictive models. Average Precision is interpreted relative to the 1.31% test-set positive prevalence.
 
 ## Business Question
 
@@ -60,7 +52,7 @@ The project is organized around the CRISP-DM framework:
    Build a one-row-per-customer dataset, define individual 90-day observation windows, construct the outcome, and prepare leakage-aware model features.
 
 4. **Modeling**
-   Use pandas and scikit-learn to preprocess the data and train a Logistic Regression baseline.
+   Use pandas and scikit-learn to preprocess the data and train Logistic Regression, Random Forest, and Gradient Boosting baselines.
 
 5. **Evaluation**
    Test on a later chronological period and evaluate the imbalanced outcome with a confusion matrix, ROC-AUC, and precision-recall analysis.
@@ -78,8 +70,8 @@ The current model uses:
 - numeric feature standardization;
 - one-hot encoding for customer state;
 - preprocessing fitted only on the training data;
-- Logistic Regression as the initial baseline; and
-- ROC-AUC and PR-AUC alongside threshold-based classification metrics.
+- Logistic Regression, Random Forest, and Gradient Boosting baselines; and
+- ROC-AUC and Average Precision alongside threshold-based classification metrics.
 
 The chronological split uses customers with earlier first-purchase dates for training and customers with later first-purchase dates for testing. This more closely represents predicting outcomes for future customers than a random split would.
 
