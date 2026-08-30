@@ -1,11 +1,34 @@
--- Create the customer-level first-purchase dataset
+-- PURPOSE: Build one customer-level record for each customer's complete initial-purchase event.
+-- INPUTS: customers, orders, order_details, payments, products, product_category_name_translation, reviews.
+-- OUTPUT: customer_first_purchase.
+-- KEY BUSINESS RULE: The initial-purchase event includes every order for a customer_unique_id
+-- with that customer's earliest order_purchase_timestamp. Same-timestamp orders are part of
+-- the initial event and therefore cannot be repeat orders.
+-- LEAKAGE NOTE: This table retains some post-purchase fields for descriptive analysis only.
+-- Model A later selects only prediction-time-safe fields in customer_initial_purchase_model.
+
+BEGIN;
+
+-- The source tables have no statistics for this reusable event CTE. Prevent the planner from
+-- choosing a row-by-row nested-loop plan that repeatedly scans the full event during a rebuild.
+-- LOCAL scope ends at COMMIT and does not change database-wide configuration.
+SET LOCAL enable_nestloop = off;
+
 DROP TABLE IF EXISTS customer_first_purchase;
+
 CREATE TABLE customer_first_purchase AS
--- Choose one representative first order from each customer's earliest purchase
--- timestamp. When multiple orders share that timestamp, use order_id to select
--- one representative record. Same-timestamp orders are part of the
--- initial-purchase event and do not count as repeat orders.
-WITH ranked_orders AS (
+WITH customer_first_timestamps AS (
+    -- Identify the customer-level event boundary before joining item or payment detail.
+    SELECT
+        c.customer_unique_id,
+        MIN(o.order_purchase_timestamp) AS first_order_date
+    FROM customers c
+    JOIN orders o
+        ON o.customer_id = c.customer_id
+    GROUP BY c.customer_unique_id
+),
+initial_event_orders AS (
+    -- Retain every order at the earliest timestamp, rather than choosing one arbitrary order.
     SELECT
         c.customer_unique_id,
         c.customer_city,
@@ -15,105 +38,165 @@ WITH ranked_orders AS (
         o.order_status,
         o.order_purchase_timestamp,
         o.order_delivered_customer_date,
-        o.order_estimated_delivery_date,
-        ROW_NUMBER() OVER (
-            PARTITION BY c.customer_unique_id
-            ORDER BY o.order_purchase_timestamp, o.order_id
-        ) AS order_rank
-    FROM customers c
-    JOIN orders o ON c.customer_id = o.customer_id
+        o.order_estimated_delivery_date
+    FROM customer_first_timestamps ft
+    JOIN customers c
+        ON c.customer_unique_id = ft.customer_unique_id
+    JOIN orders o
+        ON o.customer_id = c.customer_id
+       AND o.order_purchase_timestamp = ft.first_order_date
 ),
--- Keep one representative record for each customer's initial purchase
-first_orders AS (
-    SELECT *
-    FROM ranked_orders
-    WHERE order_rank = 1
-),
--- Gather product, seller, category, and order-value information
--- while keeping one row per first order
-first_order_details AS (
+event_anchor_order AS (
+    -- Keep a deterministic order-level anchor for customer geography and legacy descriptive fields.
+    -- Item and payment features below still aggregate every order in the complete event.
     SELECT
-        od.order_id,
-        ARRAY_AGG(DISTINCT od.seller_id) AS seller_ids,
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY customer_unique_id
+            ORDER BY order_id
+        ) AS anchor_rank
+    FROM initial_event_orders
+),
+event_metadata AS (
+    -- Preserve event composition for auditing without changing Model A's predictor set.
+    SELECT
+        customer_unique_id,
+        COUNT(*) AS initial_event_order_count,
+        ARRAY_AGG(order_id ORDER BY order_id) AS initial_event_order_ids
+    FROM initial_event_orders
+    GROUP BY customer_unique_id
+),
+event_details AS (
+    -- Aggregate item-level facts at customer/event grain. Missing category metadata is kept as
+    -- an explicit unknown category instead of silently dropping it from category counts.
+    SELECT
+        ieo.customer_unique_id,
+        ARRAY_AGG(DISTINCT od.seller_id ORDER BY od.seller_id) AS seller_ids,
         COUNT(DISTINCT od.seller_id) AS number_of_sellers,
-        ARRAY_AGG(DISTINCT od.product_id) AS product_ids,
+        ARRAY_AGG(DISTINCT od.product_id ORDER BY od.product_id) AS product_ids,
         COUNT(od.product_id) AS products_ordered,
         COUNT(DISTINCT od.product_id) AS unique_products_ordered,
-        ARRAY_AGG(DISTINCT COALESCE(pct.product_category_name_english, p.product_category_name)) FILTER (WHERE p.product_category_name IS NOT NULL) AS product_categories,
-        COUNT(DISTINCT p.product_category_name) AS number_of_categories,
+        ARRAY_AGG(
+            DISTINCT COALESCE(
+                pct.product_category_name_english,
+                p.product_category_name,
+                'unknown_product_category'
+            )
+            ORDER BY COALESCE(
+                pct.product_category_name_english,
+                p.product_category_name,
+                'unknown_product_category'
+            )
+        ) AS product_categories,
+        COUNT(
+            DISTINCT COALESCE(
+                pct.product_category_name_english,
+                p.product_category_name,
+                'unknown_product_category'
+            )
+        ) AS number_of_categories,
         SUM(od.price) AS product_amount,
         SUM(od.freight_value) AS freight_amount,
         SUM(od.price + od.freight_value) AS first_order_amount
-    FROM order_details od
-    JOIN first_orders f ON od.order_id = f.order_id
-    LEFT JOIN products p ON od.product_id = p.product_id
-    LEFT JOIN product_category_name_translation pct ON p.product_category_name = pct.product_category_name
-    GROUP BY od.order_id
+    FROM initial_event_orders ieo
+    JOIN order_details od
+        ON od.order_id = ieo.order_id
+    LEFT JOIN products p
+        ON p.product_id = od.product_id
+    LEFT JOIN product_category_name_translation pct
+        ON pct.product_category_name = p.product_category_name
+    GROUP BY ieo.customer_unique_id
 ),
--- Gather payment information for each first order
-first_order_payments AS (
+event_payments AS (
+    -- Payments are aggregated separately from items to avoid multiplying payment rows by items.
     SELECT
-        p.order_id,
-        ARRAY_AGG(DISTINCT p.payment_type) AS payment_types,
+        ieo.customer_unique_id,
+        ARRAY_AGG(DISTINCT p.payment_type ORDER BY p.payment_type) AS payment_types,
         SUM(p.payment_value) AS total_payment_value,
         MAX(p.payment_installments) AS payment_installments
-    FROM payments p
-    JOIN first_orders f ON p.order_id = f.order_id
-    GROUP BY p.order_id
+    FROM initial_event_orders ieo
+    JOIN payments p
+        ON p.order_id = ieo.order_id
+    GROUP BY ieo.customer_unique_id
 ),
--- Gather review information for each first order
-first_order_reviews AS (
+event_reviews AS (
+    -- Descriptive-only post-purchase field: average reviews across all orders in the event.
     SELECT
-        r.order_id,
+        ieo.customer_unique_id,
         AVG(r.review_score) AS review_score
-    FROM reviews r
-    JOIN first_orders f ON r.order_id = f.order_id
-    GROUP BY r.order_id
+    FROM initial_event_orders ieo
+    JOIN reviews r
+        ON r.order_id = ieo.order_id
+    GROUP BY ieo.customer_unique_id
+),
+event_delivery AS (
+    -- Descriptive-only post-purchase summaries across the complete initial event.
+    SELECT
+        customer_unique_id,
+        AVG(
+            EXTRACT(DAY FROM (order_delivered_customer_date - order_purchase_timestamp))
+        ) FILTER (WHERE order_delivered_customer_date IS NOT NULL) AS delivery_days,
+        AVG(
+            EXTRACT(DAY FROM (order_delivered_customer_date - order_estimated_delivery_date))
+        ) FILTER (
+            WHERE order_delivered_customer_date IS NOT NULL
+              AND order_estimated_delivery_date IS NOT NULL
+        ) AS delivery_variance_days,
+        CASE
+            WHEN BOOL_AND(
+                order_delivered_customer_date IS NOT NULL
+                AND order_estimated_delivery_date IS NOT NULL
+                AND order_delivered_customer_date <= order_estimated_delivery_date
+            ) THEN 'On Time'
+            WHEN BOOL_OR(
+                order_delivered_customer_date IS NOT NULL
+                AND order_estimated_delivery_date IS NOT NULL
+                AND order_delivered_customer_date > order_estimated_delivery_date
+            ) THEN 'Late'
+            ELSE NULL
+        END AS delivery_status
+    FROM initial_event_orders
+    GROUP BY customer_unique_id
 )
--- Combine everything into one row per unique customer
 SELECT
-    f.customer_unique_id,
-    f.customer_city,
-    f.customer_state,
-    f.customer_zip_code_prefix,
-    f.order_id AS first_order_id,
-    f.order_status AS first_order_status,
-    f.order_purchase_timestamp AS first_order_date,
-    fod.first_order_amount,
-    fod.product_amount,
-    fod.freight_amount,
-    fod.products_ordered,
-    fod.unique_products_ordered,
-    fod.number_of_categories,
-    fod.product_ids,
-    fod.product_categories,
-    fod.seller_ids,
-    fod.number_of_sellers,
-    fop.payment_types,
-    fop.total_payment_value,
-    fop.payment_installments,
-    r.review_score,
-    -- Calculate how many days it took to deliver the first order
-    CASE
-        WHEN f.order_delivered_customer_date IS NOT NULL
-            THEN EXTRACT(DAY FROM (f.order_delivered_customer_date - f.order_purchase_timestamp))
-        ELSE NULL
-    END AS delivery_days,
-    -- Calculate how many days early or late the delivery was
-    -- Negative = early, 0 = on estimate, positive = late
-    CASE
-        WHEN f.order_delivered_customer_date IS NOT NULL
-            AND f.order_estimated_delivery_date IS NOT NULL
-            THEN EXTRACT(DAY FROM (f.order_delivered_customer_date - f.order_estimated_delivery_date))
-        ELSE NULL
-    END AS delivery_variance_days,
-    -- Classify the delivery as On Time or Late
-    CASE
-        WHEN f.order_delivered_customer_date <= f.order_estimated_delivery_date THEN 'On Time'
-        WHEN f.order_delivered_customer_date > f.order_estimated_delivery_date THEN 'Late'
-        ELSE NULL
-    END AS delivery_status
-FROM first_orders f
-LEFT JOIN first_order_details fod ON f.order_id = fod.order_id
-LEFT JOIN first_order_payments fop ON f.order_id = fop.order_id
-LEFT JOIN first_order_reviews r ON f.order_id = r.order_id;
+    anchor.customer_unique_id,
+    anchor.customer_city,
+    anchor.customer_state,
+    anchor.customer_zip_code_prefix,
+    -- Retained legacy name: this is the deterministic anchor order within the full event.
+    anchor.order_id AS first_order_id,
+    anchor.order_status AS first_order_status,
+    anchor.order_purchase_timestamp AS first_order_date,
+    metadata.initial_event_order_count,
+    metadata.initial_event_order_ids,
+    details.first_order_amount,
+    details.product_amount,
+    details.freight_amount,
+    details.products_ordered,
+    details.unique_products_ordered,
+    details.number_of_categories,
+    details.product_ids,
+    details.product_categories,
+    details.seller_ids,
+    details.number_of_sellers,
+    payments.payment_types,
+    payments.total_payment_value,
+    payments.payment_installments,
+    reviews.review_score,
+    delivery.delivery_days,
+    delivery.delivery_variance_days,
+    delivery.delivery_status
+FROM event_anchor_order anchor
+JOIN event_metadata metadata
+    ON metadata.customer_unique_id = anchor.customer_unique_id
+LEFT JOIN event_details details
+    ON details.customer_unique_id = anchor.customer_unique_id
+LEFT JOIN event_payments payments
+    ON payments.customer_unique_id = anchor.customer_unique_id
+LEFT JOIN event_reviews reviews
+    ON reviews.customer_unique_id = anchor.customer_unique_id
+LEFT JOIN event_delivery delivery
+    ON delivery.customer_unique_id = anchor.customer_unique_id
+WHERE anchor.anchor_rank = 1;
+
+COMMIT;

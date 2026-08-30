@@ -1,77 +1,108 @@
--- 1. Check the total number of customers/rows in the dataset
-SELECT COUNT(*) AS total_rows
+-- PURPOSE: Validate customer_first_purchase at the complete initial-event grain.
+-- INPUTS: customer_first_purchase, customers, orders.
+-- OUTPUT: Read-only validation result sets.
+-- KEY BUSINESS RULES: Exactly one event per customer; every and only earliest-timestamp order
+-- belongs to that event. Delivery and review fields are descriptive only, not Model A inputs.
+
+-- Confirm customer grain and quantify multi-order same-timestamp initial events.
+SELECT
+    COUNT(*) AS customer_events,
+    COUNT(DISTINCT customer_unique_id) AS unique_customers,
+    COUNT(*) FILTER (WHERE initial_event_order_count > 1) AS multi_order_initial_events,
+    MAX(initial_event_order_count) AS max_orders_in_initial_event
 FROM customer_first_purchase;
--- 2. Confirm that the dataset has exactly one row per unique customer
-SELECT COUNT(*) AS total_rows, COUNT(DISTINCT customer_unique_id) AS unique_customers
-FROM customer_first_purchase;
--- 3. Find any customers who appear more than once
+
+-- Return any grain violations; expected result is zero rows.
 SELECT customer_unique_id, COUNT(*) AS row_count
 FROM customer_first_purchase
 GROUP BY customer_unique_id
 HAVING COUNT(*) > 1;
--- 4. Check the date range of customers' first purchases
-SELECT MIN(first_order_date) AS earliest_first_order, MAX(first_order_date) AS latest_first_order
+
+-- Verify stored event order counts equal the raw count of orders at each customer's minimum timestamp.
+WITH expected_events AS (
+    SELECT
+        c.customer_unique_id,
+        COUNT(o.order_id) AS expected_initial_event_order_count
+    FROM customers c
+    JOIN orders o
+        ON o.customer_id = c.customer_id
+    JOIN (
+        SELECT
+            c.customer_unique_id,
+            MIN(o.order_purchase_timestamp) AS first_order_date
+        FROM customers c
+        JOIN orders o
+            ON o.customer_id = c.customer_id
+        GROUP BY c.customer_unique_id
+    ) first_times
+        ON first_times.customer_unique_id = c.customer_unique_id
+       AND first_times.first_order_date = o.order_purchase_timestamp
+    GROUP BY c.customer_unique_id
+)
+SELECT
+    f.customer_unique_id,
+    f.initial_event_order_count,
+    e.expected_initial_event_order_count
+FROM customer_first_purchase f
+JOIN expected_events e
+    ON e.customer_unique_id = f.customer_unique_id
+WHERE f.initial_event_order_count <> e.expected_initial_event_order_count;
+
+-- Confirm no order after the event timestamp was accidentally retained in event order IDs.
+SELECT
+    f.customer_unique_id,
+    event_order_id,
+    o.order_purchase_timestamp,
+    f.first_order_date
+FROM customer_first_purchase f
+CROSS JOIN LATERAL UNNEST(f.initial_event_order_ids) AS event_order_id
+JOIN orders o
+    ON o.order_id = event_order_id
+WHERE o.order_purchase_timestamp <> f.first_order_date;
+
+-- customer_first_purchase retains one deterministic anchor order for customer geography while
+-- aggregating all initial-event orders for basket features. For multi-order events, confirm that
+-- the anchor cannot arbitrarily select between conflicting order-level customer locations.
+WITH customer_first_timestamps AS (
+    SELECT
+        c.customer_unique_id,
+        MIN(o.order_purchase_timestamp) AS first_order_date
+    FROM customers c
+    JOIN orders o
+        ON o.customer_id = c.customer_id
+    GROUP BY c.customer_unique_id
+),
+multi_order_event_geography AS (
+    SELECT
+        c.customer_unique_id,
+        COUNT(o.order_id) AS initial_event_order_count,
+        COUNT(DISTINCT c.customer_state) AS state_count,
+        COUNT(DISTINCT c.customer_city) AS city_count,
+        COUNT(DISTINCT c.customer_zip_code_prefix) AS zip_prefix_count
+    FROM customer_first_timestamps ft
+    JOIN customers c
+        ON c.customer_unique_id = ft.customer_unique_id
+    JOIN orders o
+        ON o.customer_id = c.customer_id
+       AND o.order_purchase_timestamp = ft.first_order_date
+    GROUP BY c.customer_unique_id
+    HAVING COUNT(o.order_id) > 1
+)
+SELECT
+    COUNT(*) AS multi_order_initial_events,
+    COUNT(*) FILTER (WHERE state_count > 1) AS conflicting_state_events,
+    COUNT(*) FILTER (WHERE city_count > 1) AS conflicting_city_events,
+    COUNT(*) FILTER (WHERE zip_prefix_count > 1) AS conflicting_zip_prefix_events
+FROM multi_order_event_geography;
+
+-- Report essential missingness and numerical ranges for the customer-level event table.
+SELECT
+    COUNT(*) FILTER (WHERE first_order_amount IS NULL) AS order_amount_nulls,
+    COUNT(*) FILTER (WHERE products_ordered IS NULL) AS product_count_nulls,
+    COUNT(*) FILTER (WHERE payment_installments IS NULL) AS installment_nulls,
+    COUNT(*) FILTER (WHERE customer_state IS NULL) AS customer_state_nulls,
+    MIN(first_order_date) AS earliest_initial_event,
+    MAX(first_order_date) AS latest_initial_event,
+    MIN(first_order_amount) AS min_event_amount,
+    MAX(first_order_amount) AS max_event_amount
 FROM customer_first_purchase;
--- 5. Check for NULL values in the key columns
-SELECT COUNT(*) FILTER (WHERE customer_unique_id IS NULL) AS customer_id_nulls, COUNT(*) FILTER (WHERE first_order_id IS NULL) AS order_id_nulls, COUNT(*) FILTER (WHERE first_order_date IS NULL) AS order_date_nulls, COUNT(*) FILTER (WHERE first_order_amount IS NULL) AS order_amount_nulls, COUNT(*) FILTER (WHERE products_ordered IS NULL) AS products_nulls, COUNT(*) FILTER (WHERE review_score IS NULL) AS review_nulls, COUNT(*) FILTER (WHERE delivery_days IS NULL) AS delivery_days_nulls, COUNT(*) FILTER (WHERE delivery_variance_days IS NULL) AS delivery_variance_nulls, COUNT(*) FILTER (WHERE delivery_status IS NULL) AS delivery_status_nulls
-FROM customer_first_purchase;
--- 6. Check which first-order statuses are represented in the dataset
-SELECT first_order_status, COUNT(*) AS customers
-FROM customer_first_purchase
-GROUP BY first_order_status
-ORDER BY customers DESC;
--- 7. Check the distribution of first-order review scores
-SELECT review_score, COUNT(*) AS customers
-FROM customer_first_purchase
-GROUP BY review_score
-ORDER BY review_score;
--- 8. Check the distribution of delivery statuses
-SELECT delivery_status, COUNT(*) AS customers
-FROM customer_first_purchase
-GROUP BY delivery_status
-ORDER BY customers DESC;
--- 9. Check minimum and maximum values for important numerical variables
-SELECT MIN(first_order_amount) AS min_order_amount, MAX(first_order_amount) AS max_order_amount, MIN(products_ordered) AS min_products, MAX(products_ordered) AS max_products, MIN(delivery_days) AS min_delivery_days, MAX(delivery_days) AS max_delivery_days, MIN(delivery_variance_days) AS min_delivery_variance, MAX(delivery_variance_days) AS max_delivery_variance
-FROM customer_first_purchase;
--- 10. Look at a sample of actual customer records
-SELECT *
-FROM customer_first_purchase
-LIMIT 20;
--- 11. Investigate why first-order amount is NULL
-SELECT first_order_status, COUNT(*) AS customers
-FROM customer_first_purchase
-WHERE first_order_amount IS NULL
-GROUP BY first_order_status
-ORDER BY customers DESC;
--- 12. Investigate why product count is NULL
-SELECT first_order_status, COUNT(*) AS customers
-FROM customer_first_purchase
-WHERE products_ordered IS NULL
-GROUP BY first_order_status
-ORDER BY customers DESC;
--- 13. Check whether NULL order amounts are caused by missing order-detail records
-SELECT COUNT(*) AS missing_order_details
-FROM customer_first_purchase c
-LEFT JOIN order_details od ON c.first_order_id = od.order_id
-WHERE c.first_order_amount IS NULL
-AND od.order_id IS NULL;
--- 14. Investigate why delivery status is NULL
-SELECT first_order_status, COUNT(*) AS customers
-FROM customer_first_purchase
-WHERE delivery_status IS NULL
-GROUP BY first_order_status
-ORDER BY customers DESC;
--- 15. Find delivered orders that are missing delivery information
-SELECT first_order_id, first_order_date, first_order_status, delivery_days, delivery_variance_days, delivery_status
-FROM customer_first_purchase
-WHERE first_order_status = 'delivered'
-AND delivery_status IS NULL;
--- 16. Verify delivered orders with missing delivery information against the original orders table
-SELECT order_id, order_status, order_purchase_timestamp, order_delivered_customer_date, order_estimated_delivery_date
-FROM orders
-WHERE order_id IN (
-    SELECT first_order_id
-    FROM customer_first_purchase
-    WHERE first_order_status = 'delivered'
-    AND delivery_status IS NULL
-);

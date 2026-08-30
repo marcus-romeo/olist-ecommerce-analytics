@@ -1,9 +1,15 @@
--- Create each customer's individual observation window. The window ends
--- exactly 90 days after first_order_date.
+-- PURPOSE: Create the exact customer-specific 90-day observation window.
+-- INPUTS: customer_first_purchase_90d.
+-- OUTPUT: customer_90_day_windows.
+-- KEY BUSINESS RULE: The outcome window includes timestamps strictly after the initial event
+-- and through the timestamp exactly 90 days later.
+
 DROP TABLE IF EXISTS customer_90_day_windows;
+
 CREATE TABLE customer_90_day_windows AS
 SELECT
     customer_unique_id,
     first_order_date,
-    first_order_date + INTERVAL '90 days' AS ninety_day_date
+    first_order_date + INTERVAL '90 days' AS ninety_day_date,
+    observation_end_timestamp
 FROM customer_first_purchase_90d;

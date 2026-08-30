@@ -1,5 +1,8 @@
--- OLIST MODELING DATASET VALIDATION QUERIES
--- These checks validate the intermediate customer_modeling table
+-- PURPOSE: Validate the intermediate customer-level modeling dataset.
+-- INPUTS: customer_modeling.
+-- OUTPUT: Read-only validation result sets.
+-- LEAKAGE NOTE: This intermediate table intentionally retains descriptive post-purchase fields;
+-- the next Model A table excludes them before modeling.
 
 -- VALIDATION 1: Confirm one row per customer
 -- Total rows should equal unique customers

@@ -1,12 +1,17 @@
 # Olist 90-Day Repeat-Purchase Prediction
 
-> **Status:** In progress — Logistic Regression baseline complete; Random Forest next; Tableau planned for a later stage.
+> **Status:** In progress — three baseline models are complete; corrected initial-event construction and enriched Model A feature engineering are ready for time-aware validation. Tableau is planned for a later stage.
 
 Can customer and first-purchase characteristics in historical order data help predict whether a customer will place another order within 90 days?
 
 This portfolio project uses the Olist Brazilian e-commerce dataset to build and evaluate a customer-level repeat-purchase prediction workflow. PostgreSQL and SQL are used to understand, prepare, and validate the data. Python, pandas, and scikit-learn are used to create a chronological train/test split, preprocess the model features, train a Logistic Regression baseline, and evaluate its out-of-sample performance.
 
 ## Current Results
+
+The saved baseline results below were produced before the later correction to the complete
+initial-purchase-event definition and timestamp-precise observation cutoff. They remain useful
+historical baselines, but they are not directly comparable to future models until the corrected
+original and enriched feature sets are evaluated with the same time-aware validation design.
 
 The Logistic Regression baseline shows very limited predictive value on the later, out-of-sample testing period:
 
@@ -97,16 +102,19 @@ olist-ecommerce-analytics/
 ├── README.md
 ├── requirements.txt
 ├── sql/
-│   ├── 01–08  First-purchase cohort, 90-day windows, target, and validation
+│   ├── 01–08  Complete initial-purchase events, 90-day cohort, target, and validation
 │   ├── 09–12  Analytical and initial-purchase modeling datasets and validation
-│   └── 13     Returning-versus-nonreturning descriptive analysis
+│   ├── 13     Returning-versus-nonreturning descriptive analysis
+│   └── 14–15  Enriched, leakage-safe initial-purchase Model A dataset and validation
 └── notebooks/
-    └── 101_olist_initial_purchase_logistic_regression.ipynb
+    ├── 101_olist_initial_purchase_logistic_regression.ipynb
+    ├── 102_olist_initial_purchase_random_forest.ipynb
+    └── 103_olist_initial_purchase_gradient_boosting.ipynb
 ```
 
 The SQL scripts create the PostgreSQL analytical tables and are intended to be run in numerical order. Build scripts use `DROP TABLE IF EXISTS` followed by `CREATE TABLE AS`, allowing the workflow to be rerun after its source tables are available.
 
-The notebook loads the final SQL modeling table, completes the Python preprocessing and chronological split, trains the Logistic Regression baseline, and evaluates the saved results.
+The baseline notebooks load the original SQL modeling table, complete Python preprocessing and a chronological split, and evaluate Logistic Regression, Random Forest, and Gradient Boosting. The enriched SQL table is prepared for a later, time-aware validation comparison; no enriched-model results are claimed yet.
 
 ## Tools
 
@@ -123,7 +131,6 @@ The notebook loads the final SQL modeling table, completes the Python preprocess
 
 **Planned**
 
-- Random Forest
 - Tableau
 
 ## Current Status and Next Steps
@@ -133,9 +140,10 @@ The notebook loads the final SQL modeling table, completes the Python preprocess
 - [x] Create and validate the repeat-purchase target
 - [x] Create a leakage-aware initial-purchase modeling dataset
 - [x] Implement a chronological train/test split
-- [x] Train and evaluate the Logistic Regression baseline
-- [ ] Train and compare a Random Forest model
-- [ ] Compare model performance against the baseline
+- [x] Train and evaluate Logistic Regression, Random Forest, and Gradient Boosting baselines
+- [x] Correct the complete initial-purchase event definition and timestamp-precise 90-day eligibility rule
+- [x] Build a leakage-safe enriched Model A feature dataset
+- [ ] Compare original and enriched feature sets with time-aware validation
 - [ ] Develop Tableau visualizations and presentation materials
 - [ ] Summarize final findings, limitations, and recommendations
 

@@ -1,14 +1,17 @@
--- Create the customer-level 90-day repeat-purchase outcome. A repeat purchase
--- means at least one later order with a timestamp strictly greater than
--- first_order_date and less than or equal to ninety_day_date. Same-timestamp
--- orders are excluded. All order statuses count because the business definition
--- is that the customer placed another order.
+-- PURPOSE: Build the customer-level 90-day repeat-purchase outcome.
+-- INPUTS: customer_90_day_windows, customers, orders.
+-- OUTPUT: customer_repeat_90d.
+-- KEY BUSINESS RULE: A repeat is an order strictly after the complete initial-event timestamp
+-- and on or before the customer's 90-day endpoint. Same-timestamp event orders are excluded.
+-- LEAKAGE NOTE: All order statuses count because the target measures a placed order; this target
+-- is never used as a predictor in Model A.
 
 DROP TABLE IF EXISTS customer_repeat_90d;
+
 CREATE TABLE customer_repeat_90d AS
 SELECT
     w.customer_unique_id,
-    f.first_order_date,
+    w.first_order_date,
     w.ninety_day_date,
     COUNT(o.order_id) AS repeat_orders_90d,
     CASE
@@ -16,15 +19,13 @@ SELECT
         ELSE 'No'
     END AS repeat_purchase_90d
 FROM customer_90_day_windows w
-JOIN customer_first_purchase_90d f
-    ON w.customer_unique_id = f.customer_unique_id
 LEFT JOIN customers c
-    ON w.customer_unique_id = c.customer_unique_id
+    ON c.customer_unique_id = w.customer_unique_id
 LEFT JOIN orders o
-    ON c.customer_id = o.customer_id
-    AND o.order_purchase_timestamp > f.first_order_date
-    AND o.order_purchase_timestamp <= w.ninety_day_date
+    ON o.customer_id = c.customer_id
+   AND o.order_purchase_timestamp > w.first_order_date
+   AND o.order_purchase_timestamp <= w.ninety_day_date
 GROUP BY
     w.customer_unique_id,
-    f.first_order_date,
+    w.first_order_date,
     w.ninety_day_date;

@@ -1,8 +1,9 @@
--- Create the initial purchase modeling dataset
--- Prediction point: immediately after the customer's first order is placed
--- Target: whether the customer places another order within 90 days
--- Retain only fields available at the initial-purchase prediction point.
--- Keep first_order_date to support chronological train/test splitting.
+-- PURPOSE: Build the corrected original Model A feature table with the established eight predictors.
+-- INPUTS: customer_modeling.
+-- OUTPUT: customer_initial_purchase_model.
+-- KEY BUSINESS RULE: Features represent the complete initial-purchase event; first_order_date is
+-- retained only for chronological splitting. Post-purchase status, review, and delivery fields
+-- are deliberately excluded to prevent leakage.
 DROP TABLE IF EXISTS customer_initial_purchase_model;
 CREATE TABLE customer_initial_purchase_model AS
 SELECT

@@ -1,5 +1,8 @@
--- Exploratory/descriptive post-outcome analysis of returning and
--- non-returning customers. These results are not a source of model features.
+-- PURPOSE: Explore descriptive differences between returning and non-returning customers.
+-- INPUTS: customer_repeat_90d, customer_first_purchase_90d.
+-- OUTPUT: Read-only descriptive result sets.
+-- LEAKAGE NOTE: Review and delivery comparisons are post-outcome descriptive analysis only;
+-- they are explicitly not sources of Model A predictors.
 
 -- Compare the number of returning and non-returning customers
 SELECT
@@ -385,7 +388,6 @@ ORDER BY
         WHEN '30-50%' THEN 4
         WHEN '50%+' THEN 5
     END;
-
 
 
 
