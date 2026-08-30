@@ -1,91 +1,134 @@
 # Olist 90-Day Repeat-Purchase Prediction
 
-> **Status:** In progress — corrected original-feature baseline results are complete; enriched Model A feature engineering is ready for time-aware validation. Tableau is planned for a later stage.
+> **Portfolio status:** Model A is complete. The project builds a leakage-aware initial-purchase dataset, compares Original 8 and Enriched 17 feature sets with temporal validation, and evaluates one locked model on a final future holdout.
 
-Can customer and first-purchase characteristics in historical order data help predict whether a customer will place another order within 90 days?
+## Executive Summary
 
-This portfolio project uses the Olist Brazilian e-commerce dataset to build and evaluate a customer-level repeat-purchase prediction workflow. PostgreSQL and SQL are used to understand, prepare, and validate the data. Python, pandas, and scikit-learn are used to create a chronological train/test split, preprocess the model features, train three baseline classifiers, and evaluate their out-of-sample performance.
+Can information available when a customer makes their **initial-purchase event** help predict whether they will place another order within 90 days?
 
-## Current Results
+Using the Olist Brazilian e-commerce dataset, this project constructs a one-row-per-customer analytical dataset in PostgreSQL and evaluates Model A in Python. The enriched feature set improved Logistic Regression consistently during temporal validation, but its ranking signal weakened in the final future holdout. The result is a careful, honest portfolio finding: initial-purchase information contains weak but detectable ranking signal, not a production-ready repeat-purchase classifier.
 
-The corrected original-feature baselines use the complete initial-purchase-event definition, the timestamp-precise 90-day eligibility rule, and the same chronological complete-case split. The latest 20% test period has a 1.31% repeat-purchase rate.
+## Final Result
 
-| Model | Test ROC-AUC | Test Average Precision | Positive predictions at 0.50 |
-|---|---:|---:|---:|
-| Logistic Regression | 0.5098 | 0.0165 | 0 |
-| Random Forest | 0.5125 | 0.0138 | 25 |
-| Gradient Boosting | 0.5336 | 0.0150 | 12 |
+| Item | Result |
+|---|---:|
+| Eligible customers | 86,924 |
+| 90-day repeat purchasers | 1,707 (1.9638%) |
+| Selected model | Enriched 17 + Logistic Regression |
+| Temporal-validation mean AP | 0.0290 |
+| Temporal-validation mean ROC-AUC | 0.5785 |
+| Final future-holdout customers | 17,287 |
+| Final future-holdout repeat prevalence | 1.3131% |
+| Final ROC-AUC | 0.5440 |
+| Final Average Precision | 0.0186 |
+| Final top-1% lift | 3.0814 |
+| Final top-5% lift | 1.6728 |
 
-All predicted positives from the two tree models are false positives at the unchanged 0.50 threshold; Logistic Regression predicts none. The weak test ranking results and the difference between training and test performance make these useful reference baselines, not successful predictive models. Average Precision is interpreted relative to the 1.31% test-set positive prevalence.
+The final model predicts no repeat purchasers at the default 0.50 threshold, so high accuracy is not evidence of useful classification. Its limited value is as an exploratory ranking tool: the top 1% of holdout customers had repeat purchasers at about 3.1 times the overall holdout rate, while capturing only 7 of 227 repeat purchasers.
 
 ## Business Question
 
-**Can customer and first-purchase characteristics help predict whether a customer will place another order within 90 days of their initial purchase?**
+**Can customer and initial-purchase characteristics help predict whether a customer makes another purchase within 90 days?**
 
-The prediction point is immediately after the customer places the initial order. The model therefore uses only information available at that point, such as customer state, order value, product counts, seller counts, payment installments, and the freight-to-order-value ratio.
+The customer identity is `customer_unique_id`. Olist's `customer_id` identifies an order-level customer record and must not be used as the repeat-customer identity.
 
-Post-purchase information such as reviews, delivery time, delivery status, and final order status is excluded from the predictive feature set to reduce target leakage.
+## Outcome and Prediction Point
 
-## Repeat-Purchase Definition
+An **initial-purchase event** contains every order for a `customer_unique_id` at that customer's earliest `order_purchase_timestamp`. Some customers placed multiple orders at that exact timestamp; all such orders are part of one event.
 
-A customer is classified as a 90-day repeat purchaser when:
+A customer is a **90-day repeat purchaser** when another order occurs:
 
-- the customer places at least one additional order;
-- the additional order timestamp is strictly later than the initial-purchase timestamp; and
-- the additional order is placed on or before the end of that customer's 90-day observation window.
+- strictly after the initial-event timestamp; and
+- on or before the customer's timestamp-precise 90-day endpoint.
 
-Orders sharing the initial-purchase timestamp are treated as part of the initial purchase rather than repeat orders.
+Customers are eligible only when their full 90-day window is observable. The eligibility cutoff is derived on every rebuild as:
 
-Customers whose initial purchases occur too close to the end of the source data are excluded because their full 90-day outcomes cannot be observed.
+```sql
+MAX(orders.order_purchase_timestamp) - INTERVAL '90 days'
+```
 
-## Approach
+All order statuses count toward the outcome because the target measures another placed order. Same-timestamp initial-event orders never count as repeats.
 
-The project is organized around the CRISP-DM framework:
+## Leakage Prevention
 
-1. **Business understanding**
-   Define a repeat-purchase prediction question and an initial-purchase prediction point.
+Model A uses only information available at the initial-purchase event. It excludes reviews, delivery performance, order status, approval/shipping/delivery timestamps, future orders, future seller or category performance, raw product/seller IDs, and target-derived fields.
 
-2. **Data understanding**
-   Inspect order, customer, item, payment, product, review, and delivery data in PostgreSQL.
+The intermediate SQL dataset retains some post-purchase fields for descriptive analysis only. The final Model A feature tables explicitly exclude them.
 
-3. **Data preparation**
-   Build a one-row-per-customer dataset, define individual 90-day observation windows, construct the outcome, and prepare leakage-aware model features.
+## Feature Sets
 
-4. **Modeling**
-   Use pandas and scikit-learn to preprocess the data and train Logistic Regression, Random Forest, and Gradient Boosting baselines.
+### Original 8
 
-5. **Evaluation**
-   Test on a later chronological period and evaluate the imbalanced outcome with a confusion matrix, ROC-AUC, and precision-recall analysis.
+- `customer_state`
+- `first_order_amount`
+- `freight_to_order_ratio`
+- `products_ordered`
+- `unique_products_ordered`
+- `number_of_categories`
+- `number_of_sellers`
+- `payment_installments`
 
-6. **Presentation and deployment**
-   Tableau visualization and presentation work is planned for a later stage. This project is not currently deployed as a production system.
+### Enriched 17
 
-## Modeling Design
+The Enriched 17 set contains Original 8 plus:
 
-The current model uses:
+- `primary_category`
+- `payment_type_group`
+- `payment_record_count`
+- `first_order_month`
+- `first_order_weekday`
+- `total_product_weight_g`
+- `total_product_volume_cm3`
+- `any_seller_same_state`
+- `avg_customer_seller_distance_km`
 
-- one row per unique customer;
-- eight first-purchase predictors;
-- an approximately 80/20 chronological train/test split;
-- numeric feature standardization;
-- one-hot encoding for customer state;
-- preprocessing fitted only on the training data;
-- Logistic Regression, Random Forest, and Gradient Boosting baselines; and
-- ROC-AUC and Average Precision alongside threshold-based classification metrics.
+Rare-category handling, imputation, scaling, and encoding are learned only from the relevant training data in Python. They are never calculated from validation or future-holdout rows.
 
-The chronological split uses customers with earlier first-purchase dates for training and customers with later first-purchase dates for testing. This more closely represents predicting outcomes for future customers than a random split would.
+## Modeling Workflow
 
-## Analytical Practices Demonstrated
+1. Build complete initial-purchase events and validate customer grain.
+2. Retain customers with fully observable 90-day outcomes.
+3. Construct the strict 90-day repeat-purchase target.
+4. Build the Original 8 and Enriched 17 Model A tables.
+5. Run historical Original 8 baseline chronological tests: Logistic Regression, Random Forest, and Gradient Boosting.
+6. Preserve the latest future period as a fixed final holdout.
+7. Within the earlier development period, compare Original 8 and Enriched 17 across three identical expanding temporal-validation folds.
+8. Lock the selected configuration: **Enriched 17 + Logistic Regression**.
+9. Evaluate that locked model once on the final future holdout.
 
-- Customer-level analytical dataset design
-- Explicit outcome and observation-window definitions
-- SQL validation after major transformation steps
-- Leakage-aware feature selection
-- Chronological out-of-sample testing
-- Training-only preprocessing
-- Evaluation appropriate for a highly imbalanced target
-- Numbered, rerunnable PostgreSQL build scripts
-- Git and GitHub version control
+### Temporal Validation and Model Selection
+
+Notebook 104 compares:
+
+```text
+Original 8 vs. Enriched 17
+× Logistic Regression / Random Forest / Gradient Boosting
+× three expanding temporal-validation folds
+```
+
+Average Precision (AP) is the primary metric because the positive class is rare. ROC-AUC is a secondary ranking metric. Top-K lift measures how concentrated repeat purchasers are among the highest-ranked customers relative to the period's overall repeat rate.
+
+The enriched Logistic Regression configuration was selected before any final-holdout model performance was calculated. It had the best mean validation AP (0.0290), mean top-1% lift (2.4082), and comparatively modest train-validation gaps.
+
+### One-Time Final Future-Holdout Evaluation
+
+Notebook 105 fits the locked Enriched 17 Logistic Regression model once on all development data and evaluates the later holdout period. No model, feature, preprocessing, hyperparameter, class treatment, or threshold was changed after seeing this result.
+
+Final AP (0.0186) and ROC-AUC (0.5440) were below the temporal-validation ranges. The weak signal therefore persisted but weakened materially in the later future period.
+
+## Interpretation and Limitations
+
+Initial-purchase information provides weak but detectable ranking signal for 90-day repeat purchase. Enrichment improved Logistic Regression consistently during development-period temporal validation, but the final holdout did not support a strong operational claim.
+
+Important limitations:
+
+- Repeat purchasers are rare, so accuracy is misleading.
+- The default 0.50 threshold predicts no positives.
+- Repeat prevalence declines over time, creating a difficult future-generalization problem.
+- The model uses only first-event information; it cannot use later customer behavior.
+- Lift at very small targeting segments does not by itself establish a profitable campaign.
+
+Future work should preserve this locked final result, then use a new time-aware development process to assess calibration, cost-aware targeting policies, and additional safe feature/model hypotheses.
 
 ## Repository Structure
 
@@ -94,53 +137,47 @@ olist-ecommerce-analytics/
 ├── README.md
 ├── requirements.txt
 ├── sql/
-│   ├── 01–08  Complete initial-purchase events, 90-day cohort, target, and validation
-│   ├── 09–12  Analytical and initial-purchase modeling datasets and validation
-│   ├── 13     Returning-versus-nonreturning descriptive analysis
-│   └── 14–15  Enriched, leakage-safe initial-purchase Model A dataset and validation
+│   ├── 01–08  Initial-purchase event, 90-day cohort, target, and validations
+│   ├── 09–12  Intermediate and Original 8 Model A datasets and validations
+│   ├── 13     Descriptive returning-vs-non-returning analysis
+│   └── 14–15  Enriched 17 Model A dataset and validation
 └── notebooks/
-    ├── 101_olist_initial_purchase_logistic_regression.ipynb
-    ├── 102_olist_initial_purchase_random_forest.ipynb
-    └── 103_olist_initial_purchase_gradient_boosting.ipynb
+    ├── 101  Original 8 Logistic Regression baseline chronological test
+    ├── 102  Original 8 Random Forest baseline chronological test
+    ├── 103  Original 8 Gradient Boosting baseline chronological test
+    ├── 104  Original 8 vs. Enriched 17 temporal model selection
+    └── 105  Locked Enriched 17 final future-holdout evaluation
 ```
 
-The SQL scripts create the PostgreSQL analytical tables and are intended to be run in numerical order. Build scripts use `DROP TABLE IF EXISTS` followed by `CREATE TABLE AS`, allowing the workflow to be rerun after its source tables are available.
+## Reproducibility and Setup
 
-The baseline notebooks load the original SQL modeling table, complete Python preprocessing and a chronological split, and evaluate Logistic Regression, Random Forest, and Gradient Boosting. The enriched SQL table is prepared for a later, time-aware validation comparison; no enriched-model results are claimed yet.
+### Requirements
+
+- Python 3.9 or later
+- PostgreSQL with the raw Olist tables loaded locally
+- Jupyter Notebook execution environment
+- Packages in `requirements.txt`
+
+The notebooks expect a PostgreSQL connection string in `DATABASE_URL`. If it is not set, they use the documented local fallback `postgresql+psycopg2://<local-user>@localhost:5432/olist_project`. Replace `<local-user>` or set `DATABASE_URL` for your environment; do not commit credentials.
+
+### Raw-table assumptions
+
+The project expects these raw PostgreSQL tables to be available: `customers`, `orders`, `order_details`, `payments`, `products`, `product_category_name_translation`, `reviews`, `sellers`, and `geolocation`. Raw Olist data acquisition/import is intentionally outside this repository; load those source tables before running the SQL workflow.
+
+### Execution order
+
+1. Run SQL build and validation scripts in numerical order, `01` through `15`.
+2. Run notebooks `101`–`103` only to reproduce the historical Original 8 baseline chronological tests.
+3. Run notebook `104` to reproduce development-period temporal validation and the locked model-selection decision.
+4. Treat notebook `105` as the one-time final future-holdout evaluation. Do not use its result to select another model.
+
+Build scripts use `DROP TABLE IF EXISTS` followed by `CREATE TABLE AS`, so derived project tables are rerunnable. Validation scripts are read-only result sets; a passing result means the expected-zero reconciliation checks return no violations.
 
 ## Tools
 
-**Used in the current workflow**
-
-- PostgreSQL
-- SQL
-- Python
-- pandas
-- scikit-learn
-- Jupyter Notebook
-- matplotlib
+- PostgreSQL and SQL
+- Python, pandas, NumPy, and scikit-learn
+- Jupyter Notebook and matplotlib
 - Git and GitHub
 
-**Planned**
-
-- Tableau
-
-## Current Status and Next Steps
-
-- [x] Build and validate the customer-level first-purchase dataset
-- [x] Define complete customer-specific 90-day observation windows
-- [x] Create and validate the repeat-purchase target
-- [x] Create a leakage-aware initial-purchase modeling dataset
-- [x] Implement a chronological train/test split
-- [x] Train and evaluate Logistic Regression, Random Forest, and Gradient Boosting baselines
-- [x] Correct the complete initial-purchase event definition and timestamp-precise 90-day eligibility rule
-- [x] Build a leakage-safe enriched Model A feature dataset
-- [ ] Compare original and enriched feature sets with time-aware validation
-- [ ] Develop Tableau visualizations and presentation materials
-- [ ] Summarize final findings, limitations, and recommendations
-
-## Limitations
-
-The current positive class is rare, and the initial-purchase feature set provides little separation between repeat purchasers and non-repeat purchasers. The present results should therefore be interpreted as a weak baseline assessment of the available signal, not evidence that the model is ready for customer targeting or operational use.
-
-This remains an in-progress portfolio project focused on developing and demonstrating a careful analytics workflow.
+Tableau remains a possible presentation layer, not a completed project component.

@@ -1,10 +1,13 @@
 -- PURPOSE: Explore descriptive differences between returning and non-returning customers.
 -- INPUTS: customer_repeat_90d, customer_first_purchase_90d.
 -- OUTPUT: Read-only descriptive result sets.
+-- OUTPUT GRAIN: Each result is an aggregate comparison by repeat_purchase_90d, category, or bucket.
+-- WORKFLOW STAGE: 13 of 15; descriptive analysis after target construction, not Model A feature creation.
 -- LEAKAGE NOTE: Review and delivery comparisons are post-outcome descriptive analysis only;
 -- they are explicitly not sources of Model A predictors.
+-- INTERPRETATION NOTE: These associations are descriptive group comparisons, not causal effects.
 
--- Compare the number of returning and non-returning customers
+-- Establish the target denominator before comparing any descriptive characteristic.
 SELECT
     repeat_purchase_90d,
     COUNT(*) AS customers
@@ -13,7 +16,8 @@ GROUP BY repeat_purchase_90d
 ORDER BY repeat_purchase_90d;
 
 
--- Compare the percentage of returning vs non-returning customers who gave a 5-star review among customers who left a review
+-- POST-PURCHASE DESCRIPTIVE ONLY: condition on customers with a review so missing reviews do not
+-- enter the denominator. Review information is unavailable at Model A's prediction point.
 SELECT
     r.repeat_purchase_90d,
     COUNT(f.review_score) AS customers_with_reviews,
@@ -30,7 +34,8 @@ GROUP BY r.repeat_purchase_90d
 ORDER BY r.repeat_purchase_90d;
 
 
--- Compare the percentage of returning vs non-returning customers who gave a 5-star review
+-- POST-PURCHASE DESCRIPTIVE ONLY: use all eligible customers as the denominator to show how review
+-- availability changes the comparison. This is not a candidate Model A predictor.
 SELECT
     r.repeat_purchase_90d,
     COUNT(*) AS total_customers,
@@ -46,7 +51,8 @@ GROUP BY r.repeat_purchase_90d
 ORDER BY r.repeat_purchase_90d;
 
 
--- Compare the percentage of returning vs non-returning customers whose first order was delivered on time
+-- POST-PURCHASE DESCRIPTIVE ONLY: delivery status is observed after the initial-purchase event and
+-- is intentionally excluded from Model A.
 SELECT
     r.repeat_purchase_90d,
     COUNT(f.delivery_status) AS customers_with_delivery_status,
@@ -63,7 +69,8 @@ GROUP BY r.repeat_purchase_90d
 ORDER BY r.repeat_purchase_90d;
 
 
--- Compare the percentage of returning vs non-returning customers whose first order included each product category
+-- Compare initial-purchase-event category membership. DISTINCT preserves a customer-level denominator
+-- when an event contains multiple item rows or multiple categories.
 WITH customer_categories AS (
     SELECT DISTINCT
         r.customer_unique_id,
@@ -107,7 +114,8 @@ ORDER BY
     percentage_of_customers DESC;
 
 
--- Compare the percentage of returning vs non-returning customers whose first order exceeded different dollar amounts
+-- Compare initial-purchase-event value thresholds. These are descriptive cuts of information
+-- available at purchase time; they are not a substitute for the model's continuous value feature.
 SELECT
     r.repeat_purchase_90d,
     COUNT(*) AS total_customers,
@@ -125,7 +133,7 @@ GROUP BY r.repeat_purchase_90d
 ORDER BY r.repeat_purchase_90d;
 
 
--- Compare the percentage of returning vs non-returning customers by number of products in their first order
+-- Bucket initial-event item counts so the result is readable while retaining a customer-level denominator.
 WITH product_buckets AS (
     SELECT
         r.customer_unique_id,
@@ -176,7 +184,7 @@ ORDER BY
     END;
 
 
--- Compare the percentage of returning vs non-returning customers by number of categories in their first order
+-- Bucket initial-event category breadth; this is purchase-time information rather than later behavior.
 WITH category_buckets AS (
     SELECT
         r.customer_unique_id,
@@ -227,8 +235,8 @@ ORDER BY
     END;
 
 
--- Compare the percentage of returning vs non-returning customers
--- by payment method used on their first order
+-- Compare payment-type combinations recorded for the complete initial-purchase event. Payment records
+-- are aggregated before this customer-level comparison to avoid item-by-payment row multiplication.
 WITH payment_counts AS (
     SELECT
         r.repeat_purchase_90d,
@@ -242,7 +250,7 @@ WITH payment_counts AS (
         r.repeat_purchase_90d,
         f.payment_types
 ),
--- Calculate the total number of customers in each group
+-- Derive a repeat-group denominator after excluding customers without a recorded payment type.
 group_totals AS (
     SELECT
         repeat_purchase_90d,
@@ -250,7 +258,7 @@ group_totals AS (
     FROM payment_counts
     GROUP BY repeat_purchase_90d
 )
--- Calculate the percentage for each payment method
+-- Express each payment combination as a within-repeat-group percentage.
 SELECT
     p.repeat_purchase_90d,
     p.payment_types,
@@ -267,7 +275,8 @@ ORDER BY
     percentage DESC;
 
 
--- Compare the percentage of returning vs non-returning customers by delivery time
+-- POST-PURCHASE DESCRIPTIVE ONLY: delivery elapsed time requires the actual delivery timestamp and
+-- therefore cannot be used as a Model A predictor at the initial-purchase event.
 WITH delivery_buckets AS (
     SELECT
         r.customer_unique_id,
@@ -325,7 +334,8 @@ ORDER BY
     END;
 
 
--- Compare the percentage of returning vs non-returning customers by freight cost as a percentage of first-order value
+-- Compare freight burden from the initial-purchase event. The denominator guard excludes zero-value
+-- events so the descriptive ratio is defined and does not introduce divide-by-zero artifacts.
 WITH freight_buckets AS (
     SELECT
         r.customer_unique_id,
@@ -388,8 +398,6 @@ ORDER BY
         WHEN '30-50%' THEN 4
         WHEN '50%+' THEN 5
     END;
-
-
 
 
 

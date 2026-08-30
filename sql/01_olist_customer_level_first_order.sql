@@ -1,6 +1,8 @@
 -- PURPOSE: Build one customer-level record for each customer's complete initial-purchase event.
 -- INPUTS: customers, orders, order_details, payments, products, product_category_name_translation, reviews.
 -- OUTPUT: customer_first_purchase.
+-- OUTPUT GRAIN: One row per customer_unique_id / complete initial-purchase event.
+-- WORKFLOW STAGE: 1 of 15; establishes the customer-level event used by every downstream table.
 -- KEY BUSINESS RULE: The initial-purchase event includes every order for a customer_unique_id
 -- with that customer's earliest order_purchase_timestamp. Same-timestamp orders are part of
 -- the initial event and therefore cannot be repeat orders.
@@ -28,6 +30,7 @@ WITH customer_first_timestamps AS (
     GROUP BY c.customer_unique_id
 ),
 initial_event_orders AS (
+    -- customer_unique_id links multiple Olist customer_id records that can belong to one person.
     -- Retain every order at the earliest timestamp, rather than choosing one arbitrary order.
     SELECT
         c.customer_unique_id,

@@ -1,8 +1,11 @@
 -- PURPOSE: Validate timestamp-precise 90-day eligibility.
 -- INPUTS: customer_first_purchase_90d, orders.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Aggregate cohort summaries and customer-level eligibility exceptions.
+-- WORKFLOW STAGE: 4 of 15; verifies both validity and completeness of the eligible cohort.
 -- KEY BUSINESS RULE: Each eligible event must end its 90-day window no later than the latest
 -- observable raw order timestamp.
+-- PASSING RESULT: Expected-zero exception queries return no rows and both cohort directions reconcile.
 
 -- Show the derived raw-data observation boundary and retained cohort range.
 SELECT

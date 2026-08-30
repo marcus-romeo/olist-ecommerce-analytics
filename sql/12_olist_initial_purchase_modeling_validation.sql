@@ -1,8 +1,11 @@
 -- PURPOSE: Validate the corrected original eight-feature Model A dataset.
 -- INPUTS: customer_initial_purchase_model, customer_first_purchase_90d.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Aggregate dataset summaries and customer-level exception rows.
+-- WORKFLOW STAGE: 12 of 15; confirms the Original 8 source table before baseline notebooks use it.
 -- LEAKAGE RULE: This final Model A table may contain only the stated initial-event predictors,
 -- target, customer identifier, and timestamp retained for chronological splitting.
+-- PASSING RESULT: Expected-zero exception queries return no rows; missingness is reported transparently.
 
 SELECT
     COUNT(*) AS total_rows,

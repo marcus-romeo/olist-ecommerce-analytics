@@ -2,7 +2,11 @@
 -- corrected original eight-feature table.
 -- INPUTS: customer_initial_purchase_model, customer_initial_purchase_model_enriched.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Each result set reports table-level checks, customer-level exceptions, or feature distributions.
+-- WORKFLOW STAGE: 15 of 15; final quality assurance before enriched data enters temporal model validation.
 -- LEAKAGE RULE: New fields must describe only the complete initial event and static metadata.
+-- PASS CONDITION: Parity/mismatch and duplicate checks should return zero exceptions; distribution checks
+-- make missingness, cardinality, and geographic coverage visible for modeling decisions.
 
 -- Confirm exact customer and target parity between the original and enriched feature tables.
 WITH population_comparison AS (

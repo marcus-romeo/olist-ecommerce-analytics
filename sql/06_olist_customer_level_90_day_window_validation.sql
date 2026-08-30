@@ -1,7 +1,10 @@
 -- PURPOSE: Validate the exact customer-specific 90-day outcome windows.
 -- INPUTS: customer_90_day_windows.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Aggregate summaries and customer-level window exceptions.
+-- WORKFLOW STAGE: 6 of 15; validates the time boundaries before repeat orders are counted.
 -- KEY BUSINESS RULE: Every endpoint is exactly 90 days after the initial event and within source coverage.
+-- PASSING RESULT: Expected-zero exception queries return no rows.
 
 SELECT
     COUNT(*) AS customers,

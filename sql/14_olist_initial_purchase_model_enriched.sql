@@ -2,6 +2,9 @@
 -- INPUTS: customer_initial_purchase_model, customer_first_purchase_90d, order_details,
 -- payments, products, sellers, geolocation, product_category_name_translation.
 -- OUTPUT: customer_initial_purchase_model_enriched.
+-- OUTPUT GRAIN: One eligible customer_unique_id per row; all predictors summarize the complete
+-- initial-purchase event at that customer's earliest purchase timestamp.
+-- WORKFLOW STAGE: 14 of 15; enriches the corrected Original 8 table without changing its population or target.
 -- KEY BUSINESS RULE: Every feature uses only the customer's initial event and static product,
 -- seller, or geographic metadata available at purchase time. No future performance, delivery,
 -- review, approval, status, or target-derived information is included.
@@ -22,6 +25,8 @@ WITH zip_prefix_geography AS (
     GROUP BY geolocation_zip_code_prefix
 ),
 event_item_rows AS (
+    -- initial_event_order_ids contains every simultaneous earliest order, which keeps the enriched
+    -- aggregation consistent with the business definition instead of selecting one representative order.
     -- Keep one row per item in every order at the complete initial-event timestamp. Customer
     -- geography comes from customer_first_purchase_90d's deterministic event anchor, never a
     -- later unrestricted customer_unique_id join.

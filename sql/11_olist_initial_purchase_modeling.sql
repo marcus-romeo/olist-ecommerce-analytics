@@ -1,9 +1,15 @@
 -- PURPOSE: Build the corrected original Model A feature table with the established eight predictors.
 -- INPUTS: customer_modeling.
 -- OUTPUT: customer_initial_purchase_model.
+-- OUTPUT GRAIN: One row per eligible customer_unique_id.
+-- WORKFLOW STAGE: 11 of 15; creates the historical Original 8 source table used by notebooks 101–103.
 -- KEY BUSINESS RULE: Features represent the complete initial-purchase event; first_order_date is
 -- retained only for chronological splitting. Post-purchase status, review, and delivery fields
 -- are deliberately excluded to prevent leakage.
+
+-- product_amount and freight_amount remain for backward-compatible table schema and auditability.
+-- They are deterministically redundant with first_order_amount and freight_to_order_ratio, so the
+-- Original 8 notebooks deliberately exclude them from their model feature lists.
 DROP TABLE IF EXISTS customer_initial_purchase_model;
 CREATE TABLE customer_initial_purchase_model AS
 SELECT

@@ -1,8 +1,11 @@
 -- PURPOSE: Validate customer_first_purchase at the complete initial-event grain.
 -- INPUTS: customer_first_purchase, customers, orders.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Each query reports either customer-level exceptions or an aggregate audit summary.
+-- WORKFLOW STAGE: 2 of 15; must pass before defining eligibility or the repeat target.
 -- KEY BUSINESS RULES: Exactly one event per customer; every and only earliest-timestamp order
 -- belongs to that event. Delivery and review fields are descriptive only, not Model A inputs.
+-- PASSING RESULT: Expected-zero exception queries return no rows; aggregate counts reconcile.
 
 -- Confirm customer grain and quantify multi-order same-timestamp initial events.
 SELECT

@@ -1,7 +1,10 @@
 -- PURPOSE: Validate the 90-day repeat-purchase target.
 -- INPUTS: customer_repeat_90d, customer_90_day_windows, customers, orders.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Aggregate target summaries and customer-level target exceptions.
+-- WORKFLOW STAGE: 8 of 15; confirms the target before it is joined to features.
 -- KEY BUSINESS RULE: Repeat orders are strictly after the initial timestamp and on/before day 90.
+-- PASSING RESULT: Expected-zero exception queries return no rows and strict raw recomputation matches.
 
 SELECT
     repeat_purchase_90d,
@@ -33,6 +36,7 @@ FROM customer_first_purchase_90d f;
 
 -- Recompute counts with the strict target boundary; expected zero rows.
 WITH recomputed AS (
+    -- Rebuild counts from raw orders rather than trusting the stored target calculation.
     SELECT
         w.customer_unique_id,
         COUNT(o.order_id) AS expected_repeat_orders_90d

@@ -1,19 +1,20 @@
 -- PURPOSE: Validate the intermediate customer-level modeling dataset.
 -- INPUTS: customer_modeling.
 -- OUTPUT: Read-only validation result sets.
+-- OUTPUT GRAIN: Aggregate checks, customer-level exceptions, and a schema inspection.
+-- WORKFLOW STAGE: 10 of 15; validates the broad descriptive table before Model A removes leakage.
 -- LEAKAGE NOTE: This intermediate table intentionally retains descriptive post-purchase fields;
 -- the next Model A table excludes them before modeling.
+-- PASSING RESULT: Grain and numerical exception checks should reconcile; NULLs are reported for later handling.
 
--- VALIDATION 1: Confirm one row per customer
--- Total rows should equal unique customers
+-- Confirm one row per customer_unique_id before a downstream modeling table is created.
 SELECT
     COUNT(*) AS total_rows,
     COUNT(DISTINCT customer_unique_id) AS unique_customers
 FROM customer_modeling;
 
 
--- VALIDATION 2: Confirm the target variable distribution
--- This verifies the number and percentage of returning vs non-returning customers
+-- Report the rare-target distribution that later informs metric interpretation.
 SELECT
     repeat_purchase_90d,
     COUNT(*) AS customers,
@@ -26,8 +27,7 @@ GROUP BY repeat_purchase_90d
 ORDER BY repeat_purchase_90d;
 
 
--- VALIDATION 3: Check for NULL values in the modeling variables
--- NULLs are not automatically errors and will be handled during model preprocessing
+-- Report NULLs without treating them as automatic failures: their handling depends on the later model design.
 SELECT
     COUNT(*) FILTER (WHERE customer_state IS NULL) AS customer_state_nulls,
     COUNT(*) FILTER (WHERE first_order_date IS NULL) AS first_order_date_nulls,
@@ -48,8 +48,7 @@ SELECT
 FROM customer_modeling;
 
 
--- VALIDATION 4: Check for potentially invalid numeric values
--- Ideally, all results should be zero
+-- Impossible values indicate a build or source-data issue; each count should be zero.
 SELECT
     COUNT(*) FILTER (WHERE first_order_amount < 0) AS negative_order_amounts,
     COUNT(*) FILTER (WHERE product_amount < 0) AS negative_product_amounts,
@@ -64,8 +63,7 @@ SELECT
 FROM customer_modeling;
 
 
--- VALIDATION 5: Inspect customers with zero payment installments
--- These records are investigated rather than automatically removed
+-- Zero installments can be valid for some payment types, so inspect rather than silently discard them.
 SELECT
     customer_unique_id,
     payment_installments,
@@ -75,8 +73,7 @@ FROM customer_modeling
 WHERE payment_installments <= 0;
 
 
--- VALIDATION 6: Review the structure of the intermediate modeling dataset
--- This helps identify variables that may contain information unavailable at prediction time
+-- Inspect the schema to make post-purchase columns visible before script 11 applies leakage exclusions.
 SELECT
     column_name,
     data_type
