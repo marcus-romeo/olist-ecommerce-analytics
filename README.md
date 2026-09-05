@@ -125,21 +125,19 @@ erDiagram
 
 `geolocation_zip_code_prefix` is not a conventional unique foreign key: raw geolocation contains multiple coordinate rows per ZIP prefix. The enrichment SQL first averages those records to one centroid per prefix, then joins the customer and seller ZIP prefixes to calculate distance.
 
-### SQL transformation to one modeling row per customer
+### From relational data to one row per customer
 
 ```mermaid
-flowchart TD
-    A["Normalized Olist source tables<br/>customers, orders, order_details, payments, reviews<br/>products, product_category_name_translation, sellers, geolocation"]
-    B["PostgreSQL SQL workflow<br/>scripts 01–14"]
-    C["Complete initial-purchase event<br/>all orders at each customer's earliest purchase timestamp"]
-    D["90-day observable cohort<br/>retain complete timestamp-precise outcome windows"]
-    E["Strict repeat_purchase_90d target<br/>later order > event timestamp and ≤ 90-day endpoint"]
-    F["Original 8 modeling dataset"]
-    G["Enriched 17 modeling dataset<br/>one row per eligible customer_unique_id"]
-    H["Python temporal validation<br/>and locked final future evaluation"]
-    L["Model A predictors use initial-event and static metadata only;<br/>post-purchase fields are excluded to prevent leakage"]
+flowchart LR
+    A["Relational Source Data"]
+    B["PostgreSQL Transformations"]
+    C["Complete Initial-Purchase Event"]
+    D["90-Day Eligible Cohort<br/>+ Repeat Target"]
+    E["Original 8 → Enriched 17<br/>one row per customer"]
+    F["Python Modeling<br/>& Temporal Validation"]
+    L["Model A predictors use only initial-event and static information;<br/>post-purchase fields are excluded to prevent leakage."]
 
-    A --> B --> C --> D --> E --> F --> G --> H
+    A --> B --> C --> D --> E --> F
     C -.-> L
 ```
 
