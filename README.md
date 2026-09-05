@@ -49,6 +49,118 @@ MAX(orders.order_purchase_timestamp) - INTERVAL '90 days'
 
 All order statuses count toward the outcome because the target measures another placed order. Same-timestamp initial-event orders never count as repeats.
 
+## Data Architecture: Source to Modeling Table
+
+### Original relational source data
+
+The raw Olist data is normalized: `orders` links an order-level customer record to its items, payments, and reviews. The diagram intentionally distinguishes the two customer identifiers: `customer_id` is the raw primary key for an order-level customer record, while `customer_unique_id` is a non-key persistent identity that can link multiple such records for repeat-purchase analysis.
+
+```mermaid
+erDiagram
+    CUSTOMERS {
+        text customer_id PK
+        text customer_unique_id "persistent identity; not raw PK"
+        integer customer_zip_code_prefix
+        char customer_state
+    }
+    ORDERS {
+        text order_id PK
+        text customer_id FK
+        timestamp order_purchase_timestamp
+        text order_status
+    }
+    ORDER_DETAILS {
+        text order_id PK, FK
+        integer order_item_id PK
+        text product_id FK
+        text seller_id FK
+        numeric price
+        numeric freight_value
+    }
+    PAYMENTS {
+        text order_id PK, FK
+        integer payment_sequential PK
+        text payment_type
+        integer payment_installments
+        numeric payment_value
+    }
+    REVIEWS {
+        text review_id PK
+        text order_id PK, FK
+        integer review_score
+    }
+    PRODUCTS {
+        text product_id PK
+        text product_category_name FK
+        integer product_weight_g
+        integer product_length_cm
+        integer product_height_cm
+        integer product_width_cm
+    }
+    PRODUCT_CATEGORY_NAME_TRANSLATION {
+        text product_category_name PK
+        text product_category_name_english
+    }
+    SELLERS {
+        text seller_id PK
+        integer seller_zip_code_prefix
+        char seller_state
+    }
+    GEOLOCATION {
+        integer geolocation_zip_code_prefix "non-unique"
+        numeric geolocation_lat
+        numeric geolocation_lng
+    }
+
+    CUSTOMERS ||--|| ORDERS : "customer_id; one order-level record"
+    ORDERS ||--o{ ORDER_DETAILS : "order_id"
+    ORDERS ||--o{ PAYMENTS : "order_id"
+    ORDERS ||--o{ REVIEWS : "order_id"
+    PRODUCTS ||--o{ ORDER_DETAILS : "product_id"
+    SELLERS ||--o{ ORDER_DETAILS : "seller_id"
+    PRODUCT_CATEGORY_NAME_TRANSLATION ||--o{ PRODUCTS : "category name"
+    GEOLOCATION }o--o{ CUSTOMERS : "ZIP-prefix lookup; non-unique"
+    GEOLOCATION }o--o{ SELLERS : "ZIP-prefix lookup; non-unique"
+```
+
+`geolocation_zip_code_prefix` is not a conventional unique foreign key: raw geolocation contains multiple coordinate rows per ZIP prefix. The enrichment SQL first averages those records to one centroid per prefix, then joins the customer and seller ZIP prefixes to calculate distance.
+
+### SQL transformation to one modeling row per customer
+
+```mermaid
+flowchart TD
+    A["Normalized Olist source tables<br/>customers, orders, order_details, payments, reviews<br/>products, product_category_name_translation, sellers, geolocation"]
+    B["PostgreSQL SQL workflow<br/>scripts 01–14"]
+    C["Complete initial-purchase event<br/>all orders at each customer's earliest purchase timestamp"]
+    D["90-day observable cohort<br/>retain complete timestamp-precise outcome windows"]
+    E["Strict repeat_purchase_90d target<br/>later order > event timestamp and ≤ 90-day endpoint"]
+    F["Original 8 modeling dataset"]
+    G["Enriched 17 modeling dataset<br/>one row per eligible customer_unique_id"]
+    H["Python temporal validation<br/>and locked final future evaluation"]
+    L["Model A predictors use initial-event and static metadata only;<br/>post-purchase fields are excluded to prevent leakage"]
+
+    A --> B --> C --> D --> E --> F --> G --> H
+    C -.-> L
+```
+
+The initial event is aggregated at `customer_unique_id` grain, not `customer_id` grain. This preserves every simultaneous earliest order for a persistent customer identity before target construction and feature aggregation.
+
+### Final modeling dataset: Enriched 17
+
+`customer_initial_purchase_model_enriched` contains **86,924 rows** and **22 physical columns**: one unique eligible `customer_unique_id` per row, 17 modeled predictors, the `repeat_purchase_90d` target, the `first_order_date` chronological split field, and two audit-only redundant amount columns. The model feature lists deliberately exclude `product_amount` and `freight_amount`.
+
+Preview below is five real rows and 10 representative columns only; it is not the full 22-column table. Customer identifiers are partially masked for presentation.
+
+| customer_unique_id | customer_state | first_order_date | first_order_amount | products_ordered | number_of_categories | primary_category | payment_type_group | avg_customer_seller_distance_km | repeat_purchase_90d |
+|---|---|---|---:|---:|---:|---|---|---:|---|
+| b7d76e11… | RR | 2016-09-04 | 136.23 | 2 | 1 | furniture_decor | credit_card | 3198.8 | No |
+| 4854e9b3… | RS | 2016-09-05 | 75.06 | 1 | 1 | telephony | credit_card | 437.1 | No |
+| 830d5b7a… | SP | 2016-09-15 | 143.46 | 3 | 1 | health_beauty | missing | 566.0 | No |
+| f7b62c75… | RJ | 2016-10-06 | 177.74 | 2 | 1 | health_beauty | credit_card | 721.7 | Yes |
+| 7a176e5d… | SP | 2016-10-08 | 207.22 | 2 | 1 | industry_commerce_and_business | credit_card | 13.0 | Yes |
+
+The full predictor definitions, data types, derivations, identifier, chronology field, and target are in [the Enriched 17 data dictionary](docs/data_dictionary.md).
+
 ## Leakage Prevention
 
 Model A uses only information available at the initial-purchase event. It excludes reviews, delivery performance, order status, approval/shipping/delivery timestamps, future orders, future seller or category performance, raw product/seller IDs, and target-derived fields.
@@ -136,6 +248,8 @@ Future work should preserve this locked final result, then use a new time-aware 
 olist-ecommerce-analytics/
 ├── README.md
 ├── requirements.txt
+├── docs/
+│   └── data_dictionary.md
 ├── sql/
 │   ├── 01–08  Initial-purchase event, 90-day cohort, target, and validations
 │   ├── 09–12  Intermediate and Original 8 Model A datasets and validations
