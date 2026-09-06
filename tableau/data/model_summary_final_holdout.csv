@@ -1,0 +1,2 @@
+model_name,evaluation_scope,holdout_customers,holdout_repeat_prevalence_pct,roc_auc,average_precision,top_1_pct_lift,top_5_pct_lift,conclusion
+Enriched 17 + Logistic Regression,Final future holdout,17287,1.3131,0.5440,0.0186,3.0814,1.6728,Weak but detectable ranking signal; not a reliable individual classifier.
