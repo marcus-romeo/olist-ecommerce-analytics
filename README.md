@@ -240,6 +240,12 @@ Important limitations:
 
 Future work should preserve this locked final result, then use a new time-aware development process to assess calibration, cost-aware targeting policies, and additional safe feature/model hypotheses.
 
+## Tableau Dashboard (In Progress)
+
+This work-in-progress Tableau Public dashboard explores 90-day repeat-purchase behavior. The completed dashboard will compare behavior by product category, basket size, payment installments, customer-to-seller distance, and initial purchase value.
+
+![Tableau dashboard preview (in progress)](tableau/exports/dashboard_preview.png)
+
 ## Repository Structure
 
 ```text
@@ -291,5 +297,3 @@ Build scripts use `DROP TABLE IF EXISTS` followed by `CREATE TABLE AS`, so deriv
 - Python, pandas, NumPy, and scikit-learn
 - Jupyter Notebook and matplotlib
 - Git and GitHub
-
-Tableau remains a possible presentation layer, not a completed project component.
